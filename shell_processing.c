@@ -62,7 +62,6 @@ char** shell_parse(char* process_command) {
         exit(EXIT_FAILURE);
     }
 
-    //char *curr_token;
     int count_curr = 0;
     int count_parse = 0;
     for (int i = 0; process_command[i] != '\0'; i++) {
