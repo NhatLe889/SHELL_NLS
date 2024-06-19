@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "declare_func.h"
 #include "looping.h"
@@ -43,30 +44,132 @@ char* shell_initilization() {
 char** shell_parse(char* process_command) {
     const char delim[] = TOKEN_DELIMITERS;
     int token_buffer_size = TOKEN_BUFFER;
-    char *temp_token;
+    int curr_token_size = TOKEN_BUFFER;
+
+    bool within_single_quote = false;
+    bool within_double_quote = false;
+
     char **parse_input = (char**) malloc(sizeof(char *) * token_buffer_size);
     if (parse_input == NULL) {
         printf("System Parse Memory Allocation Fail: malloc");
         exit(EXIT_FAILURE);
     }
-    temp_token = strtok(process_command, delim);
-    int counter = 0;
-    while (temp_token != NULL) {
-        if (counter >= token_buffer_size - 1) {
+
+    char *curr_token = (char*) malloc(sizeof(char) * curr_token_size);
+    if (curr_token == NULL) {
+        printf("System Token Memory Allocation Fail: malloc");
+        free(parse_input);
+        exit(EXIT_FAILURE);
+    }
+
+    //char *curr_token;
+    int count_curr = 0;
+    int count_parse = 0;
+    for (int i = 0; process_command[i] != '\0'; i++) {
+        char character = process_command[i];
+        bool prev_flag;
+
+        if (count_parse >= token_buffer_size - 1) {
             char **new_parse_input = (char**) realloc(parse_input, sizeof(char *) * (token_buffer_size * 2));
             if (new_parse_input == NULL) {
                 printf("System Parse Memory Allocation Fail: realloc");
+                free(curr_token);
                 free(parse_input);
                 exit(EXIT_FAILURE);
             } else {
                 parse_input = new_parse_input;
             }
+            token_buffer_size *= 2;
         }
-        parse_input[counter] = temp_token;
-        temp_token = strtok(NULL, delim);
-        counter++;
+
+        if (count_curr >= curr_token_size - 1) {
+            char *new_curr_token = (char*) realloc(curr_token, sizeof(char) * (curr_token_size * 2));
+            if (new_curr_token == NULL) {
+                printf("System Parse Memory Allocation Fail: realloc");
+                free(curr_token);
+                free(parse_input);
+                exit(EXIT_FAILURE);
+            } else {
+                curr_token = new_curr_token;
+            }
+            curr_token_size *= 2;
+        }
+
+        if (character == ' ' && within_double_quote == false && within_single_quote == false) {
+            if (count_curr > 0) {
+                curr_token[count_curr] = '\0';
+                parse_input[count_parse] = strdup(curr_token);
+                count_parse++;
+                curr_token[0] = '\0';
+                count_curr = 0;
+            }
+
+        } else if (character == '\'' && within_double_quote == false) {
+            prev_flag = within_single_quote;
+            within_single_quote = !within_single_quote;
+
+            if (prev_flag == true && within_double_quote == false) {
+                curr_token[count_curr] = '\0';
+                parse_input[count_parse] = strdup(curr_token);
+                count_parse++;
+                curr_token[0] = '\0';
+                count_curr = 0;
+            }
+
+        } else if (character == '"' && within_single_quote == false) {
+            prev_flag = within_double_quote;
+            within_double_quote = !within_double_quote;
+
+            if (prev_flag == true && within_double_quote == false) {
+                curr_token[count_curr] = '\0';
+                parse_input[count_parse] = strdup(curr_token);
+                count_parse++;
+                curr_token[0] = '\0';
+                count_curr = 0;
+            }
+
+        } else if (character == '\\' && process_command[i + 1] != '\0') {
+            char next_character = process_command[++i];
+            if (within_single_quote || within_double_quote) {
+                if (next_character == 't') {
+                    curr_token[count_curr++] = '\t';
+                } else if (next_character == 'a') {
+                    curr_token[count_curr++] = '\a';
+                } else if (next_character == 'r') {
+                    curr_token[count_curr++] = '\r';
+                } else if (next_character == 'n') {
+                    curr_token[count_curr++] = '\n';
+                } else {
+                    curr_token[count_curr++] = next_character;
+                }
+            } else {
+                curr_token[count_curr++] = next_character;
+            }
+
+        } else if (strchr(delim, character) != NULL) {
+            if (within_single_quote || within_double_quote) {
+                curr_token[count_curr++] = character;
+            } else {
+                if (count_curr > 0) {
+                    curr_token[count_curr] = '\0';
+                    parse_input[count_parse++] = strdup(curr_token);
+                    curr_token[0] = '\0';
+                    count_curr = 0; 
+                }
+            }
+        } else {
+            curr_token[count_curr] = character;
+            count_curr++;
+        }
+
     }
-    parse_input[counter] = NULL;
+    if (count_curr > 0) {
+        curr_token[count_curr] = '\0';
+        parse_input[count_parse++] = strdup(curr_token);
+    }
+
+    parse_input[count_parse] = NULL;
+    free(curr_token);
 
     return parse_input;
 }
