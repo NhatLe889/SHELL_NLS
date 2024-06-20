@@ -49,6 +49,9 @@ char** shell_parse(char* process_command) {
     bool within_single_quote = false;
     bool within_double_quote = false;
 
+    int pipe_signal = 0;
+    int pipe_position = 0;
+
     char **parse_input = (char**) malloc(sizeof(char *) * token_buffer_size);
     if (parse_input == NULL) {
         printf("System Parse Memory Allocation Fail: malloc");
@@ -156,6 +159,18 @@ char** shell_parse(char* process_command) {
                     count_curr = 0; 
                 }
             }
+
+        } else if (character == '|' && within_single_quote == false && within_double_quote == false) {
+            pipe_signal = 1;
+            if (count_curr > 0) {
+                curr_token[count_curr] = '\0';
+                parse_input[count_parse++] = strdup(curr_token);
+                curr_token[0] = '\0';
+                count_curr = 0; 
+            }
+            pipe_position = count_parse;
+            count_parse++;
+
         } else {
             curr_token[count_curr] = character;
             count_curr++;
@@ -170,7 +185,42 @@ char** shell_parse(char* process_command) {
     parse_input[count_parse] = NULL;
     free(curr_token);
 
+    if (pipe_signal) {
+        char **left_half;
+        char **right_half;
+
+        split_piping(parse_input, pipe_position, &left_half, &right_half);
+    }
+
     return parse_input;
+}
+
+void split_piping(char** parse_input, int pipe_position, char*** left_half, char*** right_half) {
+    int left_size = pipe_position;
+    int right_size = 0;
+    for (int i = pipe_position + 1; parse_input[i] != NULL; i++) {
+        right_size++;
+    }
+
+    *left_half = (char**) malloc(sizeof(char *) * (left_size + 1));
+    *right_half = (char**) malloc(sizeof(char *) * (right_size + 1));
+
+    if (left_half == NULL || right_half == NULL) {
+        printf("System Token Memory Allocation Fail: malloc");
+        free(parse_input);
+        //free(curr_token);
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < left_size; i++) {
+        (*left_half)[i] = strdup(parse_input[i]);
+    }
+    (*left_half)[left_size] = NULL;
+
+    for (int i = 0; i < right_size; i++) {
+        (*right_half)[i] = strdup(parse_input[i + pipe_position + 1]);
+    }
+    (*right_half)[right_size] = NULL;
 }
 
 int shell_starting(char** parse_input) {
