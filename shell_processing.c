@@ -41,16 +41,13 @@ char* shell_initilization() {
     return input_command;
 }
 
-char** shell_parse(char* process_command) {
+char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position) {
     const char delim[] = TOKEN_DELIMITERS;
     int token_buffer_size = TOKEN_BUFFER;
     int curr_token_size = TOKEN_BUFFER;
 
     bool within_single_quote = false;
     bool within_double_quote = false;
-
-    int pipe_signal = 0;
-    int pipe_position = 0;
 
     char **parse_input = (char**) malloc(sizeof(char *) * token_buffer_size);
     if (parse_input == NULL) {
@@ -161,14 +158,14 @@ char** shell_parse(char* process_command) {
             }
 
         } else if (character == '|' && within_single_quote == false && within_double_quote == false) {
-            pipe_signal = 1;
+            *pipe_signal = 1;
             if (count_curr > 0) {
                 curr_token[count_curr] = '\0';
                 parse_input[count_parse++] = strdup(curr_token);
                 curr_token[0] = '\0';
                 count_curr = 0; 
             }
-            pipe_position = count_parse;
+            *pipe_position = count_parse;
             count_parse++;
 
         } else {
@@ -185,16 +182,10 @@ char** shell_parse(char* process_command) {
     parse_input[count_parse] = NULL;
     free(curr_token);
 
-    if (pipe_signal) {
-        char **left_half;
-        char **right_half;
-
-        split_piping(parse_input, pipe_position, &left_half, &right_half);
-    }
-
     return parse_input;
 }
 
+//spliting parse command into left half and right half based on the piping position
 void split_piping(char** parse_input, int pipe_position, char*** left_half, char*** right_half) {
     int left_size = pipe_position;
     int right_size = 0;
@@ -223,6 +214,80 @@ void split_piping(char** parse_input, int pipe_position, char*** left_half, char
     (*right_half)[right_size] = NULL;
 }
 
+int piping_execute(char **left_half, char**right_half) {
+
+    // 0 for read end pipe, 1 for write end pipe
+    int pipe_fd[2];
+    
+    if (pipe(pipe_fd) < 0) {
+        perror("piping fail");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t child1 = fork();
+    if (child1 < 0) {
+        perror("child1 fork process fail");
+        exit(EXIT_FAILURE);
+    } else if (child1 == 0) {
+        //during the child1 process
+        close(pipe_fd[0]);
+        dup2(pipe_fd[1], STDOUT_FILENO);
+        close(pipe_fd[1]);
+
+        if (execvp(left_half[0], left_half) == -1) {
+            perror("child1 execution process fail");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    pid_t child2 = fork();
+    if (child2 < 0) {
+        perror("child2 for process fail");
+        exit(EXIT_FAILURE);
+    } else if (child2 == 0) {
+        //during the child2 process
+        close(pipe_fd[1]);
+        dup2(pipe_fd[0], STDIN_FILENO);
+        close(pipe_fd[0]);
+
+        if (execvp(right_half[0], right_half) == -1) {
+            perror("child2 execution process fail");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    //in the parent process
+    close(pipe_fd[0]);
+    close(pipe_fd[1]);
+
+    waitpid(child1, NULL, 0);
+    waitpid(child2, NULL, 0);
+
+    free(left_half);
+    free(right_half);
+
+    return 1;
+}
+
+int support_piping(char **left_half, char**right_half) {
+    if (left_half[0] == NULL || right_half[0] == NULL) {
+        return 1;
+    }
+
+    for (int i = 0; i < num_command(); i++) {
+        if (strcmp(left_half[0], command_list[i]) == 0) {
+            return (*command_func[i])(left_half);
+        }
+    }
+
+    for (int i = 0; i < num_command(); i++) {
+        if (strcmp(right_half[0], command_list[i]) == 0) {
+            return (*command_func[i])(right_half);
+        }
+    }
+    return piping_execute(left_half, right_half);
+}
+
 int shell_starting(char** parse_input) {
     pid_t child_proc_pid = fork();
     int child_status;
@@ -243,7 +308,7 @@ int shell_starting(char** parse_input) {
 
 int support_shell_command(char** parse_input) {
     if (parse_input[0] == NULL) {
-        exit(EXIT_FAILURE);
+        return 1;
     }
 
     for (int i = 0; i < num_command(); i++) {
