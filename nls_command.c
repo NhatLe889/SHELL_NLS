@@ -7,6 +7,24 @@
 #include "looping.h"
 #include "nls_command.h"
 
+char *command_list[] = {
+    "exit",
+    "help",
+    "cd"
+};
+
+int (*command_func[])(char **) = {
+    &command_exit,
+    &command_help,
+    &command_cd
+};
+
+int num_command() {
+    return (sizeof(command_list)/sizeof(char*));
+}
+
+// command implementation down below!
+
 int command_cd(char** parse_input) {
     if (parse_input[1] == NULL) {
         printf("Expected argument for \"cd\"\n");
@@ -22,16 +40,6 @@ int command_exit(char** parse_input) {
     exit(EXIT_SUCCESS);
 }
 
-char *command_list[] = {
-    "exit",
-    "help",
-    "cd"
-};
-
-int num_command() {
-    return (sizeof(command_list)/sizeof(char*));
-}
-
 int command_help(char** parse_input) {
     printf("The available three function are 'cd', 'exit', 'help'.\n");
     printf("Format: COMMAND;DIRECTORY\n");
@@ -44,8 +52,3 @@ int command_help(char** parse_input) {
     return 1;
 }
 
-int (*command_func[])(char **) = {
-    &command_exit,
-    &command_help,
-    &command_cd
-};
