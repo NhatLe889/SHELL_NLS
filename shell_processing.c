@@ -3,6 +3,8 @@
 #include <strings.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <fcntl.h>
+#include <sys/wait.h>
 
 #include "declare_func.h"
 #include "looping.h"
@@ -41,7 +43,7 @@ char* shell_initilization() {
     return input_command;
 }
 
-char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position) {
+char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, int *redir_signal, int *redir_position) {
     const char delim[] = TOKEN_DELIMITERS;
     int token_buffer_size = TOKEN_BUFFER;
     int curr_token_size = TOKEN_BUFFER;
@@ -168,6 +170,28 @@ char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position) 
             *pipe_position = count_parse;
             count_parse++;
 
+        } else if ((character == '<' || character == '>' || (character == '>' && process_command[i + 1] == '>'))
+        && within_single_quote == false && within_double_quote == false) {
+            if (character == '>') {
+                if (process_command[i + 1] == '>') { 
+                    *redir_signal = 2; //output stream redirect '>>' Append to file if file exist
+                    i++;
+                } else {
+                    *redir_signal = 1; //output stream redirect '>' - Overwrite if file exist
+                }
+            } else {
+                *redir_signal = 3; //input stream redirect '<'
+            }
+
+            if (count_curr > 0) {
+                curr_token[count_curr] = '\0';
+                parse_input[count_parse++] = strdup(curr_token);
+                curr_token[0] = '\0';
+                count_curr = 0; 
+            }
+            *redir_position = count_parse;
+            count_parse++;
+
         } else {
             curr_token[count_curr] = character;
             count_curr++;
@@ -182,11 +206,33 @@ char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position) 
     parse_input[count_parse] = NULL;
     free(curr_token);
 
+    /* For testing purpose
+    if (redir_signal) {
+        char **left_half_testing;
+        char **right_half_testing;
+
+        split_operators(parse_input, *redir_position, &left_half_testing, &right_half_testing);
+        // Print left half
+        printf("Left half:\n");
+        for (int i = 0; left_half_testing[i] != NULL; i++) {
+            printf("%s\n", left_half_testing[i]);
+        }
+
+        // Print right half
+        printf("Right half:\n");
+        for (int i = 0; right_half_testing[i] != NULL; i++) {
+            printf("%s\n", right_half_testing[i]);
+        }
+
+    }
+    exit(EXIT_SUCCESS);
+    */
+
     return parse_input;
 }
 
-//spliting parse command into left half and right half based on the piping position
-void split_piping(char** parse_input, int pipe_position, char*** left_half, char*** right_half) {
+//spliting parse command into left half and right half based on the piping and rediretion operators position.
+void split_operators(char** parse_input, int pipe_position, char*** left_half, char*** right_half) {
     int left_size = pipe_position;
     int right_size = 0;
     for (int i = pipe_position + 1; parse_input[i] != NULL; i++) {
@@ -214,6 +260,7 @@ void split_piping(char** parse_input, int pipe_position, char*** left_half, char
     (*right_half)[right_size] = NULL;
 }
 
+//function used to execute left and right half of piping command.
 int piping_execute(char **left_half, char**right_half) {
 
     // 0 for read end pipe, 1 for write end pipe
@@ -260,8 +307,8 @@ int piping_execute(char **left_half, char**right_half) {
     close(pipe_fd[0]);
     close(pipe_fd[1]);
 
-    waitpid(child1, NULL, 0);
-    waitpid(child2, NULL, 0);
+    waitpid(child1, NULL, 0); //don't care how the child terminate
+    waitpid(child2, NULL, 0); //don't care how the child terminate
 
     free(left_half);
     free(right_half);
@@ -269,6 +316,54 @@ int piping_execute(char **left_half, char**right_half) {
     return 1;
 }
 
+//This function used to make the right side into standard I/O and executing the left side command
+int redirection_to_file(char **left_half, char **right_half, int redir_signal) {
+    pid_t pid_redir = fork();
+    if (pid_redir < 0) {
+        perror("fork within redirection process fail");
+        exit(EXIT_FAILURE);
+    } else if (pid_redir == 0) {
+        int in_out_fd;
+        if (redir_signal == 1) { //output stream redirect '>' - Overwrite if file exist
+            in_out_fd = open(right_half[0], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (in_out_fd == -1) {
+                perror("output stream redirect '>' failure");
+                exit(EXIT_FAILURE);
+            }
+            dup2(in_out_fd, STDOUT_FILENO);
+            close(in_out_fd);
+        } else if (redir_signal == 2) { //output stream redirect '>>' Append to file if file exist
+            in_out_fd = open(right_half[0], O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (in_out_fd == -1) {
+                perror("output stream redirect '>>' failure");
+                exit(EXIT_FAILURE);
+            }
+            dup2(in_out_fd, STDOUT_FILENO);
+            close(in_out_fd);
+        } else if (redir_signal == 3) { //input stream redirect '<'
+            in_out_fd = open(right_half[0], O_RDONLY);
+            if (in_out_fd == -1) {
+                perror("input stream redirect '<' failure");
+                exit(EXIT_FAILURE);
+            }
+            dup2(in_out_fd, STDIN_FILENO);
+            close(in_out_fd);
+        }
+
+        //left half executing commands
+        if (execvp(left_half[0], left_half) == -1) {
+            perror("left side command fail within redirection");
+            exit(EXIT_FAILURE);
+        }
+    } else { //during the parent process to wait for the child to terminte
+        int status;
+        waitpid(pid_redir, &status, 0); //what to know how the child process terminate
+    }
+
+    return 1;
+}
+
+//This function used to find the correct command that are executing between left and right command
 int support_piping(char **left_half, char**right_half) {
     if (left_half[0] == NULL || right_half[0] == NULL) {
         return 1;
@@ -285,7 +380,19 @@ int support_piping(char **left_half, char**right_half) {
             return (*command_func[i])(right_half);
         }
     }
+
     return piping_execute(left_half, right_half);
+}
+
+//This function used to find the left side command for direction process
+int support_redir(char **left_half, char **right_half, int redir_signal) {
+    for (int i = 0; i < num_command(); i++) {
+        if (strcmp(left_half[0], command_list[i]) == 0) {
+            return (*command_func[i])(left_half);
+        }
+    }
+
+    return redirection_to_file(left_half, right_half, redir_signal);
 }
 
 int shell_starting(char** parse_input) {
