@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <glob.h>
 
 #include "declare_func.h"
 #include "looping.h"
@@ -43,13 +44,16 @@ char* shell_initilization() {
     return input_command;
 }
 
-char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, int *redir_signal, int *redir_position) {
+char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, int *redir_signal, int *redir_position, int *globbing_signal, int *glob_word_position) {
     const char delim[] = TOKEN_DELIMITERS;
     int token_buffer_size = TOKEN_BUFFER;
     int curr_token_size = TOKEN_BUFFER;
 
     bool within_single_quote = false;
     bool within_double_quote = false;
+
+    bool within_square_brackets_globbing = false;
+    bool within_braces_globbing = false;
 
     char **parse_input = (char**) malloc(sizeof(char *) * token_buffer_size);
     if (parse_input == NULL) {
@@ -192,6 +196,31 @@ char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, 
             *redir_position = count_parse;
             count_parse++;
 
+        } else if ((character == '*' || character == '?' || character == '[' || character == ']' || character == '{' || character == '}')
+        && within_single_quote == false && within_double_quote == false) {
+            if (character == '*') {
+                *globbing_signal = 1;
+                *glob_word_position = count_parse;
+            } else if (character == '?') {
+                *globbing_signal = 2;
+                *glob_word_position = count_parse;
+            } else if (character == '[') {
+                within_square_brackets_globbing = true;
+            } else if (character == '{') {
+                within_braces_globbing = true;
+            } else {
+                if (character == ']' && within_square_brackets_globbing == true) {
+                    *globbing_signal = 3;
+                    *glob_word_position = count_parse;
+                    within_square_brackets_globbing = false;
+                } else if (character == '}' && within_braces_globbing == true) {
+                    *globbing_signal = 4;
+                    *glob_word_position = count_parse;
+                    within_braces_globbing = false;
+                }
+            }
+            curr_token[count_curr] = character;
+            count_curr++;
         } else {
             curr_token[count_curr] = character;
             count_curr++;
@@ -205,28 +234,6 @@ char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, 
 
     parse_input[count_parse] = NULL;
     free(curr_token);
-
-    /* For testing purpose
-    if (redir_signal) {
-        char **left_half_testing;
-        char **right_half_testing;
-
-        split_operators(parse_input, *redir_position, &left_half_testing, &right_half_testing);
-        // Print left half
-        printf("Left half:\n");
-        for (int i = 0; left_half_testing[i] != NULL; i++) {
-            printf("%s\n", left_half_testing[i]);
-        }
-
-        // Print right half
-        printf("Right half:\n");
-        for (int i = 0; right_half_testing[i] != NULL; i++) {
-            printf("%s\n", right_half_testing[i]);
-        }
-
-    }
-    exit(EXIT_SUCCESS);
-    */
 
     return parse_input;
 }
@@ -395,6 +402,38 @@ int support_redir(char **left_half, char **right_half, int redir_signal) {
     return redirection_to_file(left_half, right_half, redir_signal);
 }
 
+int find_glob_pattern(char *pattern, char ***pattern_list) {
+    glob_t result_globbing;
+    memset(&result_globbing, 0, sizeof(result_globbing));
+
+    int check_result = glob(pattern, GLOB_TILDE | GLOB_BRACE | GLOB_NOCHECK | GLOB_MARK, NULL, &result_globbing);
+    if (check_result != 0) {
+        globfree(&result_globbing);
+        exit(EXIT_FAILURE);
+    }
+
+    *pattern_list = (char**) malloc((result_globbing.gl_pathc + 1) * sizeof(char *));
+    if (*pattern_list == NULL) {
+        globfree(&result_globbing);
+        perror("malloc allocation fail: globbing process");
+        exit(EXIT_FAILURE);
+    }
+
+    for (size_t i = 0; i < result_globbing.gl_pathc; ++i) {
+        (*pattern_list)[i] = strdup(result_globbing.gl_pathv[i]);
+        if ((*pattern_list)[i] == NULL) {
+            perror("globbing: allocate result list fail");
+            exit(EXIT_FAILURE);
+        }
+    }
+    (*pattern_list)[result_globbing.gl_pathc] = NULL;
+
+    //clean up
+    globfree(&result_globbing);
+
+    return result_globbing.gl_pathc;
+}
+
 int shell_starting(char** parse_input) {
     pid_t child_proc_pid = fork();
     int child_status;
@@ -424,4 +463,11 @@ int support_shell_command(char** parse_input) {
         }
     }
     return shell_starting(parse_input);
+}
+
+void free_word_list(char **list) {
+    for (int i = 0; list[i] != NULL; i++) {
+        free(list[i]);
+    }
+    free(list);
 }
