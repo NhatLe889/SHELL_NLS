@@ -2,9 +2,9 @@
 #include "looping.h"
 #include "nls_command.h"
 
-char* shell_initilization();
+char *shell_initilization();
 
-char** shell_parse(char *process_command, int *pipe_signal, int *pipe_position, int *redir_signal, int *redir_position);
+char **shell_parse(char *process_command, int *pipe_signal, int *pipe_position, int *redir_signal, int *redir_position, int *globbing_signal, int *glob_word_position);
 
 int shell_starting(char **parse_input);
 
@@ -19,3 +19,7 @@ int redirection_to_file(char **left_half, char **right_half, int redir_signal);
 int support_piping(char **left_half, char**right_half);
 
 int support_redir(char **left_half, char **right_half, int redir_signal);
+
+int find_glob_pattern(char *pattern, char ***pattern_list);
+
+void free_word_list(char **list);
