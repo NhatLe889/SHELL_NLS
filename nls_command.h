@@ -17,3 +17,5 @@ int command_exit(char **parse_input);
 int command_help(char **parse_input);
 
 int command_pwd(char **parse_input);
+
+int command_ls(char **parse_input);
