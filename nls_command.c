@@ -3,6 +3,8 @@
 #include <strings.h>
 #include <unistd.h>
 #include <limits.h>
+#include <dirent.h>
+#include <errno.h>
 
 #include "declare_func.h"
 #include "looping.h"
@@ -12,14 +14,16 @@ char *command_list[] = {
     "exit",
     "help",
     "cd",
-    "pwd"
+    "pwd",
+    "ls"
 };
 
 int (*command_func[])(char **) = {
     &command_exit,
     &command_help,
     &command_cd,
-    &command_pwd
+    &command_pwd,
+    &command_ls
 };
 
 int num_command() {
@@ -64,3 +68,29 @@ int command_pwd(char **parse_input) {
     return 1;
 }
 
+int command_ls(char **parse_input) {
+    DIR *curr_dir;
+    struct dirent *storage_dir;
+    const char *start_path = ".";
+
+    curr_dir = opendir(start_path);
+    if (curr_dir == NULL) {
+        perror("accessing directory error");
+        exit(EXIT_FAILURE);
+    }
+
+    while ((storage_dir = readdir(curr_dir)) != NULL) {
+        if (strcmp(storage_dir->d_name, ".") == 0 || strcmp(storage_dir->d_name, "..") == 0) {
+            continue;
+        }
+        //skip the hidden file that are in the directory
+        if (storage_dir->d_name[0] == '.') {
+            continue;
+        }
+        printf("%s\n\n", storage_dir->d_name);
+    }
+
+    closedir(curr_dir);
+
+    return 1;
+}
