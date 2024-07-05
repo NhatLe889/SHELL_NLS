@@ -52,7 +52,6 @@ int command_exit(char **parse_input) {
 }
 
 int command_help(char **parse_input) {
-    printf("The available three function are 'cd', 'exit', 'help'.\n");
     printf("Format: COMMAND;DIRECTORY\n");
     printf("current build in command:\n");
 
