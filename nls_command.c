@@ -5,6 +5,8 @@
 #include <limits.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "declare_func.h"
 #include "looping.h"
@@ -15,7 +17,8 @@ char *command_list[] = {
     "help",
     "cd",
     "pwd",
-    "ls"
+    "ls",
+    "mkdir"
 };
 
 int (*command_func[])(char **) = {
@@ -23,7 +26,8 @@ int (*command_func[])(char **) = {
     &command_help,
     &command_cd,
     &command_pwd,
-    &command_ls
+    &command_ls,
+    &command_mkdir
 };
 
 int num_command() {
@@ -91,6 +95,33 @@ int command_ls(char **parse_input) {
     }
 
     closedir(curr_dir);
+
+    return 1;
+}
+
+int command_mkdir(char **parse_input) {
+    // permission mode is 0755 (rwxr-xr-x)
+    mode_t permis_mode = 0755;
+
+    if (mkdir(parse_input[1], permis_mode) == -1) {
+        switch (errno) {
+            case EEXIST:
+                fprintf(stderr, "mkdir: cannot create directory '%s': File exists\n", parse_input[1]);
+                break;
+            case ENOENT:
+                fprintf(stderr, "mkdir: cannot create directory '%s': No such file or directory\n", parse_input[1]);
+                break;
+            case EACCES:
+                fprintf(stderr, "mkdir: cannot create directory '%s': Permission denied\n", parse_input[1]);
+                break;
+            default:
+                fprintf(stderr, "mkdir: cannot create directory '%s': Unknown error\n", parse_input[1]);
+                break;
+        }
+        exit(EXIT_FAILURE);
+    } else {
+        printf("Success! New Directory: /%s\n", parse_input[1]);
+    }
 
     return 1;
 }
